@@ -116,10 +116,18 @@ protected:
     int height;
     bool collected;
 
-    int moveSpeed;      // Скорость движения
-    int moveDirection;  // 1 - вниз, -1 - вверх
-    int startY;         // Изначальная координата Y (точка отсчета)
-    int amplitude;      // Амплитуда колебаний (на сколько пикселей отходит)
+private:
+    static constexpr int wanderingRadius = 25;
+    static constexpr double wanderingSpeed = 1.0;
+
+    int startX;
+    int startY;
+    double offsetX = 0.0;
+    double offsetY = 0.0;
+    int targetX = 0;
+    int targetY = 0;
+
+    void ChooseWanderingTarget();
 
 public:
     Algae(int InitX, int InitY, int w, int h);
@@ -130,14 +138,7 @@ public:
     bool IsCollected() { return collected; }
     void SetCollected(bool c) { collected = c; }
 
-    // Методы для изменения позиции
-    void SetPosition(int newX, int newY) {
-        Hide();      // Скрываем на старом месте
-        x = newX;    // Меняем координаты (x, y наследуются от Point)
-        y = newY;
-        startY = newY;
-        Show();      // Показываем на новом месте
-    }
+    void SetPosition(int newX, int newY);
 
     RECT GetRect() {
         RECT rect;
@@ -148,20 +149,7 @@ public:
         return rect;
     }
 
-    void UpdatePosition() {
-        if (collected) return; // Если собрана, не двигаем
-
-        // Двигаем по Y
-        y += moveSpeed * moveDirection;
-
-        // Если вышли за пределы амплитуды, меняем направление
-        if (y > startY + amplitude) {
-            moveDirection = -1; // Двигаться вверх
-        }
-        else if (y < startY - amplitude) {
-            moveDirection = 1;  // Двигаться вниз
-        }
-    }
+    void UpdatePosition();
 
     virtual void Show() = 0;
     virtual void Hide() = 0;
@@ -201,6 +189,9 @@ protected:
     int isBoosted;              // Флаг ускорена ли рыбка
     int Direction;              // Текущее направление рыбки
 
+private:
+    void ShowWithBody(COLORREF bodyColor, bool angularBody);
+
 public:
     Fish(int InitX, int InitY, int bRad, int sRad); // Конструктор
     virtual ~Fish();                                // Деструктор
@@ -218,6 +209,8 @@ public:
     virtual void HideEye() = 0;         // Скрыть глазик рыбы
     virtual void HideFin() = 0;         // Скрыть плавники рыбы
 
+    void ShowCamouflaged();
+    void ShowCollisionReaction(COLORREF bodyColor);
     void Drag(int xStep);           // Управление рыбой (W, A, S, D)
 
     int GetBRadius();               // Получить больший радиус

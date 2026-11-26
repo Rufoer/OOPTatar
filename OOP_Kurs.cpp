@@ -14,6 +14,7 @@
 ******************************************************************/
 
 #include <windows.h>
+#include <cstdlib>
 #include <iostream>
 using namespace std;
 
@@ -90,7 +91,7 @@ bool Check_Obst_Collision(Obstacle& obstacle, Fish& fish)
 }
 
 // Проверка столкновения с хищной рыбкой
-bool Check_Fish_Collision(Fish& fish, PredatorFish prFish)
+bool Check_Fish_Collision(Fish& fish, PredatorFish& prFish)
 {
     int prFishX = prFish.GetX();
     int prFishY = prFish.GetY();
@@ -187,6 +188,13 @@ int main()
     // =========== СОЗДАЕМ ВОДОРОСЛИ ===========
     const int goodAlgaeCount = 3;
     const int badAlgaeCount = 2;
+    const ULONGLONG camouflageDelayMs = 500;
+
+    struct AlgaeContact {
+        bool touching = false;
+        ULONGLONG startedAt = 0;
+    };
+    AlgaeContact goodAlgaeContacts[goodAlgaeCount];
 
     GoodAlgae* goodAlgaeArray[goodAlgaeCount];
     BadAlgae* badAlgaeArray[badAlgaeCount];
@@ -300,13 +308,42 @@ int main()
             if (!badAlgaeArray[i]->IsCollected()) badAlgaeArray[i]->UpdatePosition();
         }
 
-        // Хищник преследует (только если он не съеден)
-        if (predatorFish.GetX() > -500) {
+        const ULONGLONG now = GetTickCount64();
+        bool camouflaged = false;
+
+        for (int i = 0; i < goodAlgaeCount; i++) {
+            GoodAlgae& algae = *goodAlgaeArray[i];
+            AlgaeContact& contact = goodAlgaeContacts[i];
+
+            if (CheckAlgaeCollision(*currentObject, algae)) {
+                if (!contact.touching) {
+                    contact.touching = true;
+                    contact.startedAt = now;
+                }
+                camouflaged = camouflaged || now - contact.startedAt >= camouflageDelayMs;
+            }
+            else if (contact.touching) {
+                contact.touching = false;
+
+                AddToScore(10);
+                char msg[100];
+                sprintf_s(msg, "+10 очков! Всего: %d", globalScore);
+                ShowMessage(msg);
+
+                int newX = 300 + rand() % 1200;
+                int newY = 820 + rand() % 60;
+                algae.SetPosition(newX, newY);
+            }
+        }
+
+        // Хищник преследует рыбку, пока она видна.
+        if (predatorFish.GetX() > -500 && !camouflaged) {
             predatorFish.Chase(currentObject, 2);
         }
 
         // 4. ПОЛНАЯ ОТРИСОВКА
-        currentObject->Show();
+        if (camouflaged) currentObject->ShowCamouflaged();
+        else currentObject->Show();
 
         for (int i = 0; i < goodAlgaeCount; i++) {
             if (!goodAlgaeArray[i]->IsCollected()) goodAlgaeArray[i]->Show();
@@ -328,6 +365,10 @@ int main()
         DrawTextOnScreen(20, screenH - 120, "WASD - движение, ESC - выход", RGB(200, 200, 200));
         DrawTextOnScreen(20, screenH - 90, "Красные камни - урон, Зелёные - лечение, Синие стрелки - ускорение, Красные стрелки - замедление", RGB(150, 150, 150));
 
+        DrawTextOnScreen(20, screenH - 60,
+            "Зелёные водоросли: постойте рядом для маскировки, выплывите для +10 очков",
+            RGB(130, 230, 150));
+
         // Сообщения (если есть)
         if (messageTimer > 0) {
             DrawTextOnScreen(50, 50, statusMessage, RGB(0, 255, 0));
@@ -339,27 +380,6 @@ int main()
         BitBlt(consoleDC, 0, 0, screenW, screenH, memDC, 0, 0, SRCCOPY);
 
         // 6. ПРОВЕРКИ СТОЛКНОВЕНИЙ
-
-        // Хорошие водоросли
-        for (int i = 0; i < goodAlgaeCount; i++) {
-            if (goodAlgaeArray[i]->GetVisible() &&
-                !goodAlgaeArray[i]->IsCollected() &&
-                CheckAlgaeCollision(*currentObject, *goodAlgaeArray[i])) {
-
-                AddToScore(10);
-                char msg[100];
-                sprintf_s(msg, "+10 очков! Всего: %d", globalScore);
-                ShowMessage(msg);
-
-                goodAlgaeArray[i]->SetCollected(true);
-                Sleep(200);
-
-                int newX = 300 + rand() % 1200;
-                int newY = 820 + rand() % 60;
-                goodAlgaeArray[i]->SetPosition(newX, newY);
-                goodAlgaeArray[i]->SetCollected(false);
-            }
-        }
 
         // Плохие водоросли
         for (int i = 0; i < badAlgaeCount; i++) {
@@ -520,8 +540,23 @@ int main()
         }
 
         // Столкновение с хищником
-        if (Check_Fish_Collision(*currentObject, predatorFish) && predatorFish.GetX() > -500) {
-            if (currentObject == &predatorFish1) {
+        if (!camouflaged && predatorFish.GetX() > -500 &&
+            Check_Fish_Collision(*currentObject, predatorFish)) {
+            const COLORREF playerColors[] = { RGB(40, 220, 255), RGB(130, 255, 90), RGB(80, 150, 255) };
+            const COLORREF predatorColors[] = { RGB(255, 90, 230), RGB(200, 90, 255), RGB(255, 150, 40) };
+            const int reaction = std::rand() % 3;
+            const bool playerEatsPredator = currentObject == &predatorFish1;
+
+            hdc = memDC;
+            currentObject->Hide();
+            predatorFish.Hide();
+            predatorFish.ShowCollisionReaction(predatorColors[reaction]);
+            currentObject->ShowCollisionReaction(playerColors[reaction]);
+            hdc = consoleDC;
+            BitBlt(consoleDC, 0, 0, screenW, screenH, memDC, 0, 0, SRCCOPY);
+            Sleep(playerEatsPredator ? 300 : 500);
+
+            if (playerEatsPredator) {
                 predatorFish.Hide();
                 AddToScore(50);
                 char msg[100];
@@ -529,11 +564,9 @@ int main()
                 ShowMessage(msg);
                 predatorFish.SetX(-1000);
                 predatorFish.SetY(-1000);
-                Sleep(300);
             }
             else {
                 currentObject->Hide();
-                Sleep(500);
                 Px = currentObject->GetX();
                 Py = currentObject->GetY();
                 Boost = currentObject->GetIsBoosted();

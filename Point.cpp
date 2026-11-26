@@ -1,3 +1,5 @@
+#include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <Windows.h>
 #include "Header.h"
@@ -347,7 +349,8 @@ void SpeedSlowObstacle::Hide()        // Скрыть препятствие замедления
 *                   А Л Г А (Водоросли)                 *
 *********************************************************/
 
-Algae::Algae(int InitX, int InitY, int w, int h) : Obstacle(InitX, InitY, w / 2, h / 2)
+Algae::Algae(int InitX, int InitY, int w, int h)
+    : Obstacle(InitX, InitY, w / 2, h / 2), startX(InitX), startY(InitY)
 {
     width = w;
     height = h;
@@ -357,20 +360,63 @@ Algae::Algae(int InitX, int InitY, int w, int h) : Obstacle(InitX, InitY, w / 2,
 
 Algae::~Algae() {}
 
+void Algae::SetPosition(int newX, int newY)
+{
+    Hide();
+    x = startX = newX;
+    y = startY = newY;
+    offsetX = offsetY = 0.0;
+    targetX = targetY = 0;
+    Show();
+}
+
+void Algae::ChooseWanderingTarget()
+{
+    int nextX;
+    int nextY;
+    do {
+        nextX = std::rand() % (2 * wanderingRadius + 1) - wanderingRadius;
+        nextY = std::rand() % (2 * wanderingRadius + 1) - wanderingRadius;
+    } while (nextX * nextX + nextY * nextY > wanderingRadius * wanderingRadius ||
+        (nextX == targetX && nextY == targetY));
+
+    targetX = nextX;
+    targetY = nextY;
+}
+
+void Algae::UpdatePosition()
+{
+    if (collected) return;
+
+    if (offsetX == targetX && offsetY == targetY) {
+        ChooseWanderingTarget();
+    }
+
+    const double dx = targetX - offsetX;
+    const double dy = targetY - offsetY;
+    const double distance = std::sqrt(dx * dx + dy * dy);
+
+    if (distance <= wanderingSpeed) {
+        offsetX = targetX;
+        offsetY = targetY;
+    }
+    else {
+        offsetX += dx * wanderingSpeed / distance;
+        offsetY += dy * wanderingSpeed / distance;
+    }
+
+    // Truncating each offset toward zero keeps the pixel position inside the circle.
+    x = startX + static_cast<int>(offsetX);
+    y = startY + static_cast<int>(offsetY);
+}
+
 
 /*********************************************************
 *            Х О Р О Ш И Е   В О Д О Р О С Л И           *
 *********************************************************/
 
 GoodAlgae::GoodAlgae(int InitX, int InitY, int w, int h) : Algae(InitX, InitY, w, h)
-{
-    Visible = false;
-
-    moveSpeed = 1;        // Скорость движения (1 пиксель за кадр)
-    moveDirection = 1;    // Направление (1 = вниз, -1 = вверх)
-    startY = InitY;       // Запоминаем изначальную высоту
-    amplitude = 25;       // Амплитуда колебаний (25 пикселей)
-}
+{}
 
 GoodAlgae::~GoodAlgae() {}
 
@@ -439,14 +485,7 @@ void GoodAlgae::Hide()
 *********************************************************/
 
 BadAlgae::BadAlgae(int InitX, int InitY, int w, int h) : Algae(InitX, InitY, w, h)
-{
-    Visible = false;
-
-    moveSpeed = 1;        // Скорость движения (1 пиксель за кадр)
-    moveDirection = 1;    // Направление (1 = вниз, -1 = вверх)
-    startY = InitY;       // Запоминаем изначальную высоту
-    amplitude = 25;       // Амплитуда колебаний (25 пикселей)
-}
+{}
 
 BadAlgae::~BadAlgae() {}
 
@@ -583,6 +622,51 @@ void Fish::Show()                 // Показать рыбу
     Visible = true;
 
     DrawBody();
+    DrawTail();
+    DrawEye();
+    DrawFin();
+}
+
+void Fish::ShowCamouflaged()
+{
+    ShowWithBody(RGB(45, 145, 85), false);
+}
+
+void Fish::ShowCollisionReaction(COLORREF bodyColor)
+{
+    ShowWithBody(bodyColor, true);
+}
+
+void Fish::ShowWithBody(COLORREF bodyColor, bool angularBody)
+{
+    Visible = true;
+
+    const COLORREF outlineColor = angularBody ? RGB(255, 255, 255) : RGB(20, 80, 45);
+    HPEN outline = CreatePen(PS_SOLID, 2, outlineColor);
+    HBRUSH fill = CreateSolidBrush(bodyColor);
+    HGDIOBJ previousPen = SelectObject(hdc, outline);
+    HGDIOBJ previousBrush = SelectObject(hdc, fill);
+
+    if (angularBody) {
+        const POINT body[] = {
+            { x, y + SRadius / 2 },
+            { x + BRadius / 4, y + SRadius / 6 },
+            { x + BRadius * 3 / 4, y + SRadius / 6 },
+            { x + BRadius, y + SRadius / 2 },
+            { x + BRadius * 3 / 4, y + SRadius * 5 / 6 },
+            { x + BRadius / 4, y + SRadius * 5 / 6 }
+        };
+        Polygon(hdc, body, 6);
+    }
+    else {
+        Ellipse(hdc, x, y, x + BRadius, y + SRadius);
+    }
+
+    SelectObject(hdc, previousBrush);
+    SelectObject(hdc, previousPen);
+    DeleteObject(fill);
+    DeleteObject(outline);
+
     DrawTail();
     DrawEye();
     DrawFin();
